@@ -20,54 +20,53 @@ data_upload_block = dcc.Upload(id='upload-data',
                                children=html.Div(['Drag and Drop or ', html.A('Select Files') ]), 
                                style=upload_style, 
                                multiple=True )
-scenario_upload_block = dcc.Upload(id='upload-scenario',
-                               children=html.Div(['Choose scenario file' ]), 
-                               style=upload_style, 
-                               multiple=True )
 
 app.layout = html.Div([
     data_upload_block,
-    scenario_upload_block,
-    html.Div(id='output-data-upload'),
-    html.Div(id='output-scenario-upload')
-])
+    # html.Div(id='output-data-upload'),
+    html.Div([        html.Div(id='table-placeholder', children=[])    ], className='row'),
+    dcc.Store(id='store-data', data=[], storage_type='memory'), # 'local' or 'session'
+    
+]) 
 
 def make_table(df):
-    return html.Div([
-        dash_table.DataTable(
-            df.to_dict('records'),
-            [{'name': i, 'id': i} for i in df.columns]
-        ),
-    ])
+    dff = pd.read_json(df, orient='split')
+    return dash_table.DataTable(dff.to_dict('records'), [{'name': i, 'id': i} for i in dff.columns])
 
 def parse_csv_contents(contents, filename):
     content_type, content_string = contents.split(',')
     path = io.StringIO(base64.b64decode(content_string).decode('utf-8'))
-    print(path)
     df = pd.read_csv(path, sep=',\t', skiprows=5, engine='python')
     return df
 
-def parse_scenerio_contents(contents, filename):
-    content_type, content_string = contents.split(',')
-    path = io.StringIO(base64.b64decode(content_string).decode('utf-8'))
-    scenario = yaml.safe_load(path)['scenarios']
-    return pd.DataFrame([scenario[s] for s in scenario])
 
-@app.callback(Output('output-data-upload', 'children'),
-              Input('upload-data', 'contents'),
-              State('upload-data', 'filename'))
-def update_table(list_of_contents, list_of_names):
+@app.callback(
+    Output('store-data', 'data'),
+    Input('upload-data', 'contents'),
+    State('upload-data', 'filename'))
+def store_data(list_of_contents, list_of_names):
     if list_of_contents is not None:
-        children = [make_table(parse_csv_contents(c, n)) for c, n in zip(list_of_contents, list_of_names)]
+        children = [parse_csv_contents(c, n) for c, n in zip(list_of_contents, list_of_names)]
+        # children = children[0].to_dict('records')
+        children = children[0].to_json()
         return children
+    
+@app.callback(
+    Output('table-placeholder', 'children'),
+    Input('store-data', 'data'),
+    prevent_initial_callbacks=True
+)
+def create_graph1(data):
+    if data is not None:
+        # dff = pd.DataFrame(data)
+        # 2. convert string like JSON to pandas dataframe
+        dff = pd.read_json(data)
+        my_table = dash_table.DataTable(
+            columns=[{"name": i, "id": i} for i in dff.columns],
+            data=dff.to_dict('records')
+        )
+        return my_table
 
-@app.callback(Output('output-scenario-upload', 'children'),
-              Input('upload-scenario', 'contents'),
-              State('upload-scenario', 'filename'))
-def update_scentable(list_of_contents, list_of_names):
-    if list_of_contents is not None:
-        children = [make_table(parse_scenerio_contents(c, n)) for c, n in zip(list_of_contents, list_of_names)]
-        return children
 
 if __name__ == '__main__':
     app.run_server(debug=True, port=3838, )
